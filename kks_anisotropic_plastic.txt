@@ -1,0 +1,487 @@
+#
+# KKS simple example in the split form
+#
+[GlobalParams]
+  enable_jit = false
+  displacements = 'disp_x disp_y'
+[]
+
+[Mesh]
+  type = GeneratedMesh
+  dim = 2
+  elem_type = QUAD4
+  nx = 40
+  ny = 40
+  nz = 0
+  xmin = 0
+  xmax = 40
+  ymin = 0
+  ymax = 40
+  zmin = 0
+  zmax = 0
+[]
+
+[AuxVariables]
+  [./Fglobal]
+    order = CONSTANT
+    family = MONOMIAL
+  [../]
+[]
+
+[Variables]
+  # order parameter
+  [./eta]
+    order = FIRST
+    family = LAGRANGE
+  [../]
+
+  # hydrogen concentration
+  [./c]
+    order = FIRST
+    family = LAGRANGE
+  [../]
+
+  # Liquid phase solute concentration
+  [./cl]
+    order = FIRST
+    family = LAGRANGE
+    #initial_condition = 0.4083
+  [../]
+  # Solid phase solute concentration
+  [./cs]
+    order = FIRST
+    family = LAGRANGE
+    #initial_condition = 0.3511
+  [../]
+
+  [./T]
+     initial_condition = 1585
+  [../]
+
+[]
+
+[Functions]
+  [./ic_func_eta]
+    type = ParsedFunction
+    value = 0.5*(1.0-tanh((x)/sqrt(2.0)))
+  [../]
+  [./ic_func_c]
+    type = ParsedFunction
+    value = '0.9*(0.5*(1.0-tanh(x/sqrt(2.0))))^3*(6*(0.5*(1.0-tanh(x/sqrt(2.0))))^2-15*(0.5*(1.0-tanh(x/sqrt(2.0))))+10)+0.1*(1-(0.5*(1.0-tanh(x/sqrt(2.0))))^3*(6*(0.5*(1.0-tanh(x/sqrt(2.0))))^2-15*(0.5*(1.0-tanh(x/sqrt(2.0))))+10))'
+  [../]
+[]
+
+[ICs]
+  [./eta]
+    variable = eta
+    type = SmoothCircleIC
+    x1 = 35.0
+    y1 = 35.0
+    radius = 0.5
+    invalue = 1.0
+    outvalue = 0.0
+    int_width = 1
+#    type = FunctionIC
+#    function = ic_func_eta
+  [../]
+  [./c]
+    variable = c
+    type = SpecifiedSmoothCircleIC
+    x_positions = '35.0'
+    y_positions = '35.0'
+    z_positions = '0.0'
+    radii = '0.5'
+    invalue = 0.3511
+    outvalue = 0.4083
+    int_width = 1
+  [../]
+[]
+
+[BCs]
+  [./all]
+    type =  NeumannBC
+    variable = 'c'
+    boundary = 'left right top bottom'
+    value = 0.0
+  [../]
+  [./Periodic]
+    [./all]
+      auto_direction = 'x y'
+    [../]
+  [../]
+
+  [./x_disp]
+    type = DirichletBC
+    variable = 'disp_x'
+    boundary ='left right top bottom'
+    value = 0
+  [../]
+  [./y_disp]
+    type = DirichletBC
+    variable = 'disp_y'
+    boundary = 'right left top bottom'
+    value = 0
+  [../]
+[]
+
+
+[UserObjects]
+  [./slip_rate_gss]
+    type = CrystalPlasticitySlipRateGSS
+    variable_size = 12
+    slip_sys_file_name = input_slip_sys.txt
+    num_slip_sys_flowrate_props = 2
+    flowprops = '1 4 0.001 0.1 5 8 0.001 0.1 9 12 0.001 0.1'
+   uo_state_var_name = state_var_gss
+  [../]
+  [./slip_resistance_gss]
+    type = CrystalPlasticitySlipResistanceGSS
+    variable_size = 12
+   uo_state_var_name = state_var_gss
+  [../]
+  [./state_var_gss]
+    type = CrystalPlasticityStateVariable
+    variable_size = 12
+    groups = '0 4 8 12'
+    group_values = '60.8 60.8 60.8'
+   uo_state_var_evol_rate_comp_name = state_var_evol_rate_comp_gss
+    scale_factor = 1.0
+  [../]
+  [./state_var_evol_rate_comp_gss]
+    type = CrystalPlasticityStateVarRateComponentGSS
+    variable_size = 12
+    hprops = '1.0 541.5 109.8 2.5'
+    uo_slip_rate_name = slip_rate_gss
+    uo_state_var_name = state_var_gss
+  [../]
+[]
+
+[Materials]
+  # Free energy of the liquid
+  [./fl]
+    type = DerivativeParsedMaterial
+    f_name = fl
+    args = 'cl T'
+    constant_names = 'R unit_transfer delta'
+    constant_expressions = '8.31 1.7e-3 0.002'
+    function = 'G_NiL:=11235.527+108.457*T-22.096*T*log(T)-0.0048407*T^2-3.82318e-21*T^7;
+                G_CuL:=-46.545+173.881484*T-31.38*T*log(T);
+                L_L0:=11760+1.084*T;
+                logc:=if(cl>delta,log(cl),log(delta)+2*cl/delta-cl^2/(2*delta^2)-1.5);
+                log1c:=if(1-cl>delta,log(1-cl),log(delta)+2*(1-cl)/delta-(1-cl)^2/(2*delta^2)-1.5);
+                unit_transfer*(G_NiL*(1-cl)+G_CuL*cl+R*T*(cl*logc+(1-cl)*log1c)+L_L0*cl*(1-cl))'
+  [../]  #'
+
+  # Free energy of the solid
+  [./fs]
+    type = DerivativeParsedMaterial
+    f_name = fs
+    args = 'cs T'
+    constant_names = 'R unit_transfer delta'
+    constant_expressions = '8.31 1.7e-3 0.002'
+    function = 'G_NiS:=-5179.159+117.854*T-22.096*T*log(T)-0.0048407*T^2;
+                G_CuS:=-13542.026+183.803828*T-31.38*T*log(T)+3.642e29*T^(-9);
+                L_s0:=8365.65+2.80242*T;
+                logc:=if(cs>delta,log(cs),log(delta)+2*cs/delta-cs^2/(2*delta^2)-1.5);
+                log1c:=if(1-cs>delta,log(1-cs),log(delta)+2*(1-cs)/delta-(1-cs)^2/(2*delta^2)-1.5);
+                unit_transfer*(G_NiS*(1-cs)+G_CuS*cs+R*T*(cs*logc+(1-cs)*log1c)+L_s0*cs*(1-cs))'
+  [../] #'
+   [./elastic_energy]
+                type = ElasticEnergyMaterial
+                f_name = f_elastic
+                args = 'eta'
+                outputs = exodus
+    [../]
+
+    [./crysp]
+                type = FiniteStrainUObasedCP
+                stol = 1e-6
+               tan_mod_type = exact
+                uo_slip_rates = 'slip_rate_gss'
+                uo_slip_resistances = 'slip_resistance_gss'
+                uo_state_vars = 'state_var_gss'
+                uo_state_var_evol_rate_comps = 'state_var_evol_rate_comp_gss'
+               maximum_substep_iteration = 10
+     [../]
+
+  # h(eta)
+  [./h_eta]
+    type = SwitchingFunctionMaterial
+    h_order = HIGH
+    eta = eta
+  [../]
+  
+  [./one_minus_h_eta_explicit]
+    type = DerivativeParsedMaterial
+    f_name = one_minus_h_explicit
+    args = eta
+    function = 1-eta^3*(6*eta^2-15*eta+10)
+    outputs = exodus
+  [../]
+
+  # g(eta)
+  [./g_eta]
+    type = BarrierFunctionMaterial
+    g_order = SIMPLE
+    eta = eta
+  [../]
+
+  # constant properties
+  [./constants]
+    type = GenericConstantMaterial
+    prop_names  = 'eps_sq    k    Dl  Ds    W'
+    prop_values = '2.5e-3   1500  1  0.001  1.0'  #kappa 2.08 #W2.0
+  [../]
+
+  [./L]
+    type = DerivativeParsedMaterial
+    f_name = L
+    args = 'c'
+    constant_names = 'MphiA  MphiB  eps'
+    constant_expressions = '0.898 0.889 0.1'
+    function = '((1-c)*MphiA+c*MphiB)/eps^2'
+    derivative_order = 2
+  [../]
+
+  [./D]
+    type = DerivativeParsedMaterial
+    material_property_names = 'Dl Ds h'
+    function = Dl*(1-h)+Ds*h
+    f_name = D
+  [../]
+  # Coefficients for diffusion equation
+  [./Deta]
+    type = DerivativeParsedMaterial
+    args = 'cs cl'
+    material_property_names = 'D g'
+    function = D*30*g*(cl-cs)
+    f_name = Deta
+  [../]
+
+  [./Dhs]
+    type = DerivativeParsedMaterial
+    material_property_names = 'D h'
+    function = D*h
+    f_name = Dhs
+  [../]
+  [./Dhl]
+    type = DerivativeParsedMaterial
+    material_property_names = 'D h'
+    function = D*(1-h)
+    f_name = Dhl
+  [../]
+
+  [./material_anisotropic]
+    type = InterfaceOrientationMaterial
+    op = eta
+    reference_angle = 0
+    anisotropy_strength = 0.06
+    eps_bar = 0.05
+    mode_number = 4
+  [../]
+
+   [./elasticity_tensor]
+    type = ComputeElasticityTensorCP
+    block = 0
+    C_ijkl = '1.684e5 1.214e5 1.214e5 1.684e5 1.214e5 1.684e5 0.754e5 0.754e5 0.754e5'
+    fill_method = symmetric9
+   [../]
+
+ []
+
+[Modules/TensorMechanics/Master]
+  [./all]
+    add_variables = true
+    strain = FINITE
+   # eigenstrain_names = 'eigenstrain thermal_expansion'
+    generate_output = 'stress_xx  stress_yy  strain_xx  strain_yy  stress_xy  stress_yx  vonmises_stress' 
+  [../]
+[]
+
+[Kernels]
+  [./T_dot]
+    type = TimeDerivative
+    variable = T
+  [../]
+#  [./one]
+#    type = BodyForce
+#    variable = T
+#    value = 0.0
+#  [../]
+#  [./CoefDiffusion]
+#    type = CoeffDiffusion
+#    variable = T
+#    coeff_name = k
+#  [../]
+#  [./w_dot_T]
+#    type = CoefCoupledTimeDerivative
+#    variable = T
+#    v = eta
+#    coef = -50.0
+#  [../]
+
+  # enforce c = h(eta)*cs + (1-h(eta))*cl
+  [./PhaseConc]
+    type = KKSPhaseConcentration
+    variable = cs
+    ca       = cl
+    c        = c
+    eta      = eta
+  [../]
+
+  # enforce pointwise equality of chemical potentials
+  [./ChemPotSolute]
+    type = KKSPhaseChemicalPotential
+    variable = cl
+    cb       = cs
+    fa_name  = fl
+    fb_name  = fs
+  [../]
+
+  #
+  #Kernels for diffusion equation
+  #
+  [./diff_time]
+    type = TimeDerivative
+    variable = c
+  [../]
+  [./diff_c1]
+    type = MatDiffusion
+    variable = c
+    D_name = Dhl
+    conc = cl
+  [../]
+  [./diff_c2]
+    type = MatDiffusion
+    variable = c
+    D_name = Dhs
+    conc = cs
+  [../]
+
+  #
+  # Allen-Cahn Equation
+  #
+  [./detadt]
+    type = TimeDerivative
+    variable = eta
+  [../]
+  [./ACBulkF]
+    type = KKSACBulkF
+    variable = eta
+    fa_name  = fl
+    fb_name  = fs
+    w        = 1.0
+    args = 'cl cs'
+  [../]
+  [./ACBulkC]
+    type = KKSACBulkC
+    variable = eta
+    ca       = cl
+    cb       = cs
+    fa_name  = fl
+    fb_name  = fs
+  [../]
+
+  [./ACBulk_el]
+    type = AllenCahn
+    variable = eta
+    f_name = f_elastic
+  [../]
+  [./anisoACinterface1]
+    type = ACInterfaceKobayashi1
+    variable = eta
+    mob_name = L
+    eta = eta
+  [../]
+  [./anisoACinterface2]
+    type = ACInterfaceKobayashi2
+    variable = eta
+    mob_name = L
+    eta = eta
+  [../]
+#  [./ACInterface]
+#    type = ACInterface
+#    variable = eta
+#    kappa_name = eps_sq
+#  [../]
+  [./langevin]
+    type = LangevinNoise
+    variable = eta
+    amplitude = 0.05
+#    noise = normal_noise
+  []
+
+[]
+
+[AuxKernels]
+  [./GlobalFreeEnergy]
+    variable = Fglobal
+    type = KKSGlobalFreeEnergy
+    fa_name = fl
+    fb_name = fs
+    w = 1.0
+  [../]
+[]
+
+[Executioner]
+  type = Transient
+  solve_type = 'PJFNK'
+
+  petsc_options_iname = '-pc_type -sub_pc_type -sub_pc_factor_shift_type'
+  petsc_options_value = 'asm      ilu          nonzero'
+
+  l_max_its = 30
+  nl_max_its = 10
+  nl_abs_tol = 1e-10
+
+  end_time = 8
+  dt = 0.008
+
+#  [./TimeStepper]
+#    type = IterationAdaptiveDT
+#    dt = 0.002 # Initial time step.  In this simulation it changes.
+#    optimal_iterations = 8 # Time step will adapt to maintain this number of nonlinear iterations
+#  [../]
+  [./Adaptivity]
+    initial_adaptivity = 3 # Number of times mesh is adapted to initial condition
+    refine_fraction = 0.6 # Fraction of high error that will be refined
+    coarsen_fraction = 0.1 # Fraction of low error that will coarsened
+    max_h_level = 3 # Max number of refinements used, starting from initial mesh (before uniform refinement)
+  [../]
+
+[]
+
+#
+# Precondition using handcoded off-diagonal terms
+#
+[Preconditioning]
+  [./full]
+    type = SMP
+    full = true
+  [../]
+[]
+
+[Postprocessors]
+  [./dofs]
+    type = NumDOFs
+  [../]
+  [./integral]
+    type = ElementL2Error
+    variable = eta
+    function = ic_func_eta
+  [../]
+[]
+
+[Outputs]
+  exodus = true
+  interval = 30
+  [./console]
+     type = Console
+     interval = 1
+  [../]
+  [./checkpoint]
+     type = Checkpoint
+     num_files = 10
+     interval = 10
+  [../]
+[]
