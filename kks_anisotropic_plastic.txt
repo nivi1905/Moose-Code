@@ -18,7 +18,7 @@
   ymin = 0
   ymax = 40
   zmin = 0
-  zmax = 0
+  zmax = 40
 []
 
 [AuxVariables]
